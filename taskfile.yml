@@ -1,0 +1,35 @@
+version: '3'
+
+env:
+    CGO_ENABLED: '0'
+    GOOS: linux
+    MAIN_PATH: ./cmd/consul/
+    BUILD_PATH: ./build/consul
+
+dotenv: ['.env']
+
+tasks:
+    default:
+        desc: List all available tasks
+        cmds:
+        - task --list
+        silent: true
+
+    setup:
+        desc: Download and tidy Go module dependencies
+        cmds:
+        - go mod download
+        - go mod tidy
+
+    build:
+        desc: Compile the project into a static binary
+        cmds:
+        - task: setup
+        - go build -tags all -a -ldflags '-s -w -extldflags "-static"' -trimpath -o ${BUILD_PATH} ${MAIN_PATH}
+
+    run:
+        desc: Run the agent with the test configuration
+        cmds:
+        - task: setup
+        - go run -tags all ${MAIN_PATH}... agent --config ${TEST_CONFIG_PATH} --log-level TRACE
+        ignore_error: true
