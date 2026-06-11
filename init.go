@@ -1,7 +1,7 @@
-package plugin
+package consul
 
 import (
-	"github.com/mwantia/forge-plugin-consul/internal/consul"
+	"github.com/mwantia/forge-plugin-consul/plugin/consul"
 	"github.com/mwantia/forge-sdk/pkg/plugins"
 )
 

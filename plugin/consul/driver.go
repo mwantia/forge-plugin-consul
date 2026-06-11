@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/mapstructure"
-	"github.com/mwantia/forge-sdk/pkg/errors"
 	"github.com/mwantia/forge-sdk/pkg/plugins"
 )
 
@@ -24,10 +23,13 @@ const (
 )
 
 type ConsulDriver struct {
-	plugins.UnimplementedToolsPlugin
-	log    hclog.Logger
-	config *ConsulConfig
-	client *api.Client
+	plugins.UnimplementedDriver
+
+	log          hclog.Logger
+	config       *ConsulConfig
+	client       *api.Client
+	capabilities ConsulCapabilitySet
+	enabled      []string
 }
 
 type ConsulConfig struct {
@@ -62,15 +64,28 @@ func (d *ConsulDriver) GetPluginInfo() plugins.PluginInfo {
 	}
 }
 
-func (d *ConsulDriver) ProbePlugin(ctx context.Context) (bool, error) {
+func (d *ConsulDriver) GetPluginHealth(ctx context.Context) (*plugins.PluginHealth, error) {
 	if d.client == nil {
-		return false, nil
+		return &plugins.PluginHealth{
+			Status:  plugins.StatusUnhealthy,
+			Code:    plugins.HealthCodeConfigInvalid,
+			Message: "consul client not configured",
+		}, nil
 	}
 	_, err := d.client.Status().Leader()
 	if err != nil {
-		return false, nil
+		return &plugins.PluginHealth{
+			Status:  plugins.StatusUnhealthy,
+			Code:    plugins.HealthCodeConnectionRefused,
+			Message: fmt.Sprintf("consul unreachable: %v", err),
+			Action:  "Ensure consul is running and the address in the config is correct.",
+		}, nil
 	}
-	return true, nil
+	return &plugins.PluginHealth{
+		Status:  plugins.StatusHealthy,
+		Code:    plugins.HealthCodeOK,
+		Message: "consul reachable",
+	}, nil
 }
 
 func (d *ConsulDriver) GetCapabilities(ctx context.Context) (*plugins.DriverCapabilities, error) {
@@ -130,6 +145,10 @@ func (d *ConsulDriver) ConfigDriver(ctx context.Context, config plugins.PluginCo
 }
 
 func (d *ConsulDriver) OpenDriver(ctx context.Context) error {
+	d.capabilities = ProbeCapabilities(ctx, d.client, d.log)
+	d.enabled = BuildEnabledTools(d.capabilities)
+	d.log.Info("Consul capabilities probed", "enabled", len(d.enabled), "capabilities", d.capabilities.Summary())
+
 	return nil
 }
 
@@ -137,24 +156,8 @@ func (d *ConsulDriver) CloseDriver(ctx context.Context) error {
 	return nil
 }
 
-func (d *ConsulDriver) GetProviderPlugin(ctx context.Context) (plugins.ProviderPlugin, error) {
-	return nil, errors.ErrPluginNotSupported
-}
-
-func (d *ConsulDriver) GetMemoryPlugin(ctx context.Context) (plugins.MemoryPlugin, error) {
-	return nil, errors.ErrPluginNotSupported
-}
-
-func (d *ConsulDriver) GetChannelPlugin(ctx context.Context) (plugins.ChannelPlugin, error) {
-	return nil, errors.ErrPluginNotSupported
-}
-
 func (d *ConsulDriver) GetToolsPlugin(ctx context.Context) (plugins.ToolsPlugin, error) {
-	return d, nil
-}
-
-func (d *ConsulDriver) GetSandboxPlugin(_ context.Context) (plugins.SandboxPlugin, error) {
-	return nil, errors.ErrPluginNotSupported
+	return &ConsulToolsPlugin{driver: d}, nil
 }
 
 func buildTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
